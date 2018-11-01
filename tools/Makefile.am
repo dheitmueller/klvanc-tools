@@ -11,7 +11,7 @@ AM_CPPFLAGS = -DVERSION=\"$(VERSION)\" -DPROG="\"$(PACKAGE)\"" -D_FILE_OFFSET_BI
 
 AM_CFLAGS = -Wall -O3
 
-LDADD = -lpthread -lz -ldl -lklvanc
+LDADD = -lpthread -lz -ldl -lklvanc -lklbars
 
 if DEBUG
 	CFLAGS += -g
@@ -22,6 +22,7 @@ CXXFLAGS = $(CFLAGS)
 SRC  = klvanc_util.c
 SRC += $(BLACKMAGIC_SDK_PATH)//DeckLinkAPIDispatch.cpp
 SRC += capture.cpp
+SRC += player.cpp
 SRC += ts_packetizer.c
 SRC += klringbuffer.c
 SRC += frame-writer.c
@@ -29,10 +30,11 @@ SRC += smpte337_detector.c
 SRC += rcwt.c
 
 #bin_PROGRAMS  = klvanc_util
-bin_PROGRAMS  = klvanc_capture
+bin_PROGRAMS  = klvanc_capture klvanc_player
 
 #klvanc_util_SOURCES = $(SRC)
 klvanc_capture_SOURCES = $(SRC)
+klvanc_player_SOURCES = $(SRC)
 
 libklvanc_noinst_includedir = $(includedir)
 
