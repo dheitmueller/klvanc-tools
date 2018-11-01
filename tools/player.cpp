@@ -639,7 +639,6 @@ static int _main(int argc, char *argv[])
 	IDeckLinkIterator *deckLinkIterator = CreateDeckLinkIteratorInstance();
 	IDeckLinkOutput *deckLinkOutput = NULL;
 	OutputCallback *outputCallback = NULL;
-//	IDeckLinkDisplayMode *displayMode;
 
 	int displayModeCount = 0;
 	int exitStatus = 1;
@@ -856,66 +855,9 @@ static int _main(int argc, char *argv[])
 		listDisplayModes();
 		goto bail;
 	}
-#if 1
+
 	startupVideo(deckLinkOutput, outputCallback);
-#else
-	/* Confirm the user-requested display mode and other settings are valid for this device. */
-	BMDDisplayModeSupport dm;
-	deckLinkOutput->DoesSupportVideoMode(selectedDisplayMode, g_pixelFormat,
-					     g_inputFlags, &dm, &displayMode);
-	if (dm == bmdDisplayModeNotSupported) {
-		fprintf(stderr, "The requested display mode [%s] is not supported with the selected pixel format\n", display_mode_to_string(selectedDisplayMode));
-		goto bail;
-	}
 
-	BMDTimeValue frameRateDuration, frameRateScale;
-	displayMode->GetFrameRate(&kFrameDuration, &kTimeScale);
-	kFrameWidth = displayMode->GetWidth();
-	kFrameHeight = displayMode->GetHeight();
-	/* 10-bit YUV row bytes, ref. SDK Manual "2.7.4 Pixel Formats" / bmdFormat10BitYUV */
-	kRowBytes = ((kFrameWidth + 47) / 48) * 128;
-
-	// Enable video output
-	result = deckLinkOutput->EnableVideoOutput(selectedDisplayMode, kOutputFlag);
-	if (result != S_OK)
-	{
-		fprintf(stderr, "Could not enable video output - result = %08x\n", result);
-		goto bail;
-	}
-
-#ifdef USE_KLBARS
-	kl_colorbar_init(&klbars_ctx, kFrameWidth, kFrameHeight, KL_COLORBAR_10BIT);
-#endif
-	for (int i = 0; i < 3; i++)
-	{
-		IDeckLinkMutableVideoFrame *videoFrame = NULL;
-		
-		// Create a frame with defined format
-		videoFrame = CreateFrame(deckLinkOutput);
-		if (!videoFrame)
-			goto bail;
-
-		fillVideo(videoFrame);
-		
-		result = outputCallback->ScheduleNextFrame(videoFrame);
-		if (result != S_OK)
-		{
-			videoFrame->Release();
-			
-			fprintf(stderr, "Could not schedule video frame - result = %08x\n", result);
-			goto bail;
-		}
-		gTotalFramesScheduled++;
-	}
-
-	// Start
-	result = deckLinkOutput->StartScheduledPlayback(0, kTimeScale, 1.0);
-	if (result != S_OK)
-	{
-		fprintf(stderr, "Could not start - result = %08x\n", result);
-		goto bail;
-	}
-#endif
 	signal(SIGINT, signal_handler);
 	signal(SIGUSR1, signal_handler);
 	signal(SIGUSR2, signal_handler);
@@ -968,4 +910,3 @@ extern "C" int player_main(int argc, char *argv[])
 {
 	return _main(argc, argv);
 }
-
