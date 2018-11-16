@@ -26,6 +26,7 @@
 #include <libklbars/klbars.h>
 #endif
 #include "frame-writer.h"
+#include "klburnin.h"
 
 #include "hexdump.h"
 #include "version.h"
@@ -119,6 +120,7 @@ static BMDDisplayMode g_detected_mode_id = 0;
 static BMDDisplayMode g_requested_mode_id = 0;
 static BMDVideoInputFlags g_inputFlags = bmdVideoInputEnableFormatDetection;
 static BMDPixelFormat g_pixelFormat = bmdFormat10BitYUV;
+static bool wantKlCounters = false;
 
 static unsigned long audioFrameCount = 0;
 static struct frameTime_s {
@@ -401,6 +403,11 @@ static void fillVideo(IDeckLinkMutableVideoFrame* theFrame)
 		wordsRemaining = wordsRemaining - 4;
 	}
 #endif
+	/* Burn counter into video if desired */
+	if (wantKlCounters) {
+		theFrame->GetBytes((void**)&nextWord);
+		klburnin_V210_write_32bit_value(nextWord, kRowBytes, gTotalFramesScheduled, 0);
+	}
 }
 
 class OutputCallback: public IDeckLinkVideoOutputCallback
@@ -651,7 +658,7 @@ static int _main(int argc, char *argv[])
 	pthread_mutex_init(&sleepMutex, NULL);
 	pthread_cond_init(&sleepCond, NULL);
 
-	while ((ch = getopt(argc, argv, "?h3c:s:f:a:A:m:n:p:t:vV:o:l:LP:MSx:X:R:e:")) != -1) {
+	while ((ch = getopt(argc, argv, "?h3kc:s:f:a:A:m:n:p:t:vV:o:l:LP:MSx:X:R:e:")) != -1) {
 		switch (ch) {
 		case 'm':
 			selectedDisplayMode  = *(optarg + 0) << 24;
@@ -711,6 +718,9 @@ static int _main(int argc, char *argv[])
 			break;
 		case 'v':
 			g_verbose++;
+			break;
+		case 'k':
+			wantKlCounters = true;
 			break;
 		case '3':
 			g_inputFlags |= bmdVideoInputDualStream3D;
