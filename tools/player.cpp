@@ -116,6 +116,9 @@ static const char *g_muxedInputFilename = NULL;
 static struct fwr_session_s *muxedSession = NULL;
 static int g_maxFrames = -1;
 static int g_shutdown = 0;
+#ifdef USE_KLBARS
+static enum kl_colorbar_pattern g_barFormat = KL_COLORBAR_SMPTE_RP_219_1;
+#endif
 static BMDDisplayMode g_detected_mode_id = 0;
 static BMDDisplayMode g_requested_mode_id = 0;
 static BMDVideoInputFlags g_inputFlags = bmdVideoInputEnableFormatDetection;
@@ -386,7 +389,8 @@ static void fillVideo(IDeckLinkMutableVideoFrame* theFrame)
 	theFrame->GetBytes((void**)&nextWord);
 
 #ifdef USE_KLBARS
-	kl_colorbar_fill_pattern(&klbars_ctx, KL_COLORBAR_SMPTE_RP_219_1);
+	kl_colorbar_fill_pattern(&klbars_ctx, g_barFormat);
+
 	char buf[64];
 	snprintf(buf, sizeof(buf), "%d", gTotalFramesScheduled);
 	kl_colorbar_render_string(&klbars_ctx, buf, strlen(buf), 1, 1);
@@ -607,6 +611,11 @@ static int startupVideo(IDeckLinkOutput *deckLinkOutput, OutputCallback *outputC
 
 #ifdef USE_KLBARS
 	kl_colorbar_init(&klbars_ctx, kFrameWidth, kFrameHeight, KL_COLORBAR_10BIT);
+	if (g_muxedOutputFilename == NULL) {
+		const char *barPatternName = kl_colorbar_get_pattern_name(&klbars_ctx, g_barFormat);
+		if (barPatternName != NULL)
+			printf("Pattern selected: %s\n", barPatternName);
+	}
 #endif
 	for (int i = 0; i < 3; i++)
 	{
@@ -658,7 +667,7 @@ static int _main(int argc, char *argv[])
 	pthread_mutex_init(&sleepMutex, NULL);
 	pthread_cond_init(&sleepCond, NULL);
 
-	while ((ch = getopt(argc, argv, "?h3kc:s:f:a:A:m:n:p:t:vV:o:l:LP:MSx:X:R:e:")) != -1) {
+	while ((ch = getopt(argc, argv, "?h3kc:s:f:a:A:m:n:p:t:vV:o:l:LP:MSx:X:R:e:b:")) != -1) {
 		switch (ch) {
 		case 'm':
 			selectedDisplayMode  = *(optarg + 0) << 24;
@@ -690,6 +699,11 @@ static int _main(int argc, char *argv[])
 				goto bail;
 			}
 			break;
+#ifdef USE_KLBARS
+		case 'b':
+			g_barFormat = (kl_colorbar_pattern) atoi(optarg);
+			break;
+#endif
 		case 'c':
 			g_audioChannels = atoi(optarg);
 			if (g_audioChannels != 2 && g_audioChannels != 8 && g_audioChannels != 16) {
