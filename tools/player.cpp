@@ -611,7 +611,7 @@ static int startupVideo(IDeckLinkOutput *deckLinkOutput, OutputCallback *outputC
 
 #ifdef USE_KLBARS
 	kl_colorbar_init(&klbars_ctx, kFrameWidth, kFrameHeight, KL_COLORBAR_10BIT);
-	if (g_muxedOutputFilename == NULL) {
+	if (g_muxedInputFilename == NULL) {
 		const char *barPatternName = kl_colorbar_get_pattern_name(&klbars_ctx, g_barFormat);
 		if (barPatternName != NULL)
 			printf("Pattern selected: %s\n", barPatternName);
