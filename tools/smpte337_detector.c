@@ -151,8 +151,9 @@ static int smpte337_detector_hunt_syncwords(struct smpte337_detector_s *ctx, uin
 	for (int i = 0; i < audioFrames - 1; i++) {
 
 		uint32_t Pa = *p;
-		uint32_t Pb = *(p + (frameStrideBytes / sizeof(uint32_t)));
-
+//		uint32_t Pb = *(p + (frameStrideBytes / sizeof(uint32_t)));
+		uint32_t Pb = *(p + 1);
+//                printf("i=%d %x %x fs=%d\n", i, Pa, Pb, frameStrideBytes);
 		if ((Pa == 0xf8720000) && (Pb == 0x4e1f0000)) {
 			return 16;
 		} else
@@ -186,6 +187,7 @@ static void run_detector(struct smpte337_detector_s *ctx)
 		 * Pa = dat0/1
 		 * Pb = dat2/3 ... etc
 		 */
+//                printf("Looking at %02x %02x %02x %02x\n", dat[0], dat[1], dat[2], dat[3]);
 		if (dat[0] == 0x96 && dat[1] == 0xf8 && dat[2] == 0x72 && dat[3] == 0xa5 && dat[4] == 0x4e && dat[5] == 0x1f) {
 			/* Confirmed.... pa = 24bit, pb = 24bit */
 #if 1
@@ -231,7 +233,7 @@ static void run_detector(struct smpte337_detector_s *ctx)
 		} else
 		if (dat[0] == 0xF8 && dat[1] == 0x72 && dat[2] == 0x4e && dat[3] == 0x1f) {
 			/* Confirmed.... pa = 16bit, pb = 16bit */
-
+                    fprintf(stderr, "DJH1 found\n");
 			/* Check the burst_info.... */
 			if ((dat[5] & 0x1f) == 0x01) {
 				/* Bits 0-4 datatype, 1 = AC3 */

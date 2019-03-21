@@ -22,6 +22,9 @@
 #include <libgen.h>
 #include <signal.h>
 #include <libklvanc/vanc.h>
+#include "libklvanc/vanc-lines.h"
+#include "libklvanc/vanc-eia_708b.h"
+#include "libklvanc/pixels.h"
 #ifdef USE_KLBARS
 #include <libklbars/klbars.h>
 #endif
@@ -93,7 +96,8 @@ static char *dup_cfstring_to_utf8(CFStringRef w)
                 obj = NULL; \
         }
 
-static BMDDisplayMode selectedDisplayMode = bmdModeNTSC;
+//static BMDDisplayMode selectedDisplayMode = bmdModeNTSC;
+static BMDDisplayMode selectedDisplayMode = bmdModeHD1080i5994;
 static struct klvanc_context_s *vanchdl;
 static pthread_mutex_t sleepMutex;
 static pthread_cond_t sleepCond;
@@ -253,6 +257,166 @@ static const char *display_mode_to_string(BMDDisplayMode m)
 	return &g_mode[0];
 }
 
+
+// stays on screen until jump to 10k but then cleared
+//#define DJH_SKIP_START 2500
+//#define DJH_SKIP_END 10000
+
+// stays on screen until jump to 10k but then cleared
+//#define DJH_SKIP_START 4000
+//#define DJH_SKIP_END 10000
+
+// stays on screen until jump to 10k but then cleared
+//#define DJH_SKIP_START 6000
+//#define DJH_SKIP_END 10000
+
+// stays on screen until jump to 10k but then cleared
+//#define DJH_SKIP_START 8000
+//#define DJH_SKIP_END 10000
+
+// No skip (caption on screen until start of new captions, grey text)
+//#define DJH_SKIP_START 11000
+//#define DJH_SKIP_END 10000
+
+//#define DJH_SKIP_START 2800
+//#define DJH_SKIP_END 9500
+
+//#define DJH_SKIP_START 1
+//#define DJH_SKIP_END 2000
+
+// skip nothing
+#define DJH_SKIP_START 9999998
+#define DJH_SKIP_END 9999999
+
+//#define DJH_SKIP_START 1
+
+// still on-screen and broken
+//#define DJH_SKIP_END 13250
+//#define DJH_SKIP_END 13275
+//#define DJH_SKIP_END 13287
+
+
+// cleared
+//#define DJH_SKIP_END 13288
+//#define DJH_SKIP_END 13290
+//#define DJH_SKIP_END 13293
+//#define DJH_SKIP_END 13295
+//#define DJH_SKIP_END 13299
+//#define DJH_SKIP_END 13300
+//#define DJH_SKIP_END 13400
+//#define DJH_SKIP_END 13500
+
+
+
+#define DJH_INJECT_POINT 2218
+int skip_list[] = {
+  10733,
+  10734,
+  10735,
+  10748,
+  10749,
+  10750,
+  10758,
+  10759,
+  10760,
+  10761,
+  10762,
+  10763,
+  10764,
+  10765,
+  10766,
+  10773,
+  10774,
+  10775,
+  10776,
+  10777,
+  10778,
+  10779,
+  10780,
+  10781,
+  10782,
+  10783,
+  10784,
+  10785,
+  10786,
+  10795,
+  10796,
+  10797,
+  10798,
+  10799,
+  10800,
+  10801,
+  10802,
+  10803,
+  10804,
+  10805,
+  10806,
+  10807,
+  10808,
+  10809,
+};
+static int in_skip_list(int counter) {
+#if 0
+  for (int i = 0; i < sizeof(skip_list) / sizeof(int); i++) {
+    if (counter == skip_list[i])
+      return 1;
+  }
+#endif
+  return 0;
+}
+
+int inject_list[] = {
+#if 0
+	2240,
+	2792,
+	12603,
+
+	13653,
+#endif
+#if 0
+	13654,
+
+	13655,
+	13656,
+	14896,
+#endif
+};
+static int in_inject_list(int counter) {
+  for (int i = 0; i < sizeof(inject_list) / sizeof(int); i++) {
+    if (counter == inject_list[i])
+      return 1;
+  }
+  return 0;
+}
+
+uint16_t last_cdpseq = 0;
+uint16_t last_ccpseq = 0;
+
+static int cb_EIA_708B(void *callback_context, struct klvanc_context_s *ctx, struct klvanc_packet_eia_708b_s *pkt)
+{
+	last_cdpseq = pkt->header.cdp_hdr_sequence_cntr;
+	for (int i = 0; i < pkt->ccdata.cc_count; i++) {
+		if (pkt->ccdata.cc[i].cc_valid) {
+			if (pkt->ccdata.cc[i].cc_type == 0x03) {
+				last_ccpseq = pkt->ccdata.cc[i].cc_data[0] >> 6;
+			}
+		}
+	}
+//        printf("djh 708 cb called last=%d\n", last_cdpseq);
+
+	return 0;
+}
+
+static struct klvanc_callbacks_s callbacks = 
+{
+//	.payload_information	= NULL,
+	.eia_708b		= cb_EIA_708B,
+	.eia_608		= NULL,
+	.scte_104		= NULL,
+	.all			= NULL,
+	.kl_i64le_counter       = NULL,
+};
+
 static int demux_single_frame(IDeckLinkVideoFrame* videoFrame, IDeckLinkVideoFrameAncillary *ancillaryData)
 {
 	struct fwr_header_audio_s *fa;
@@ -265,6 +429,7 @@ static int demux_single_frame(IDeckLinkVideoFrame* videoFrame, IDeckLinkVideoFra
 	struct timeval tv1, tv2;
 	int eos = 0;
 
+	
 	gettimeofday(&tv1, NULL);
 
 	if (ftlast.counter == -1) {
@@ -272,13 +437,27 @@ static int demux_single_frame(IDeckLinkVideoFrame* videoFrame, IDeckLinkVideoFra
 		return -1;
 	}
 
+	printf("djh %s called\n", __func__);
+
+	fa = NULL;
+	fv = NULL;
 	while (1) {
-		fa = NULL;
-		fv = NULL;
+
+
+		if (fa) {
+			fwr_pcm_frame_free(session, fa);
+			fa = NULL;
+		}
+		if (fv) {
+			fwr_video_frame_free(session, fv);
+			fv = NULL;
+		}
+
 		if (fwr_session_frame_gettype(session, &header) < 0) {
 			eos = 1;
 			break;
 		}
+
 
 		if (header == timing_v1_header) {
 			if (fwr_timing_frame_read(session, &ft) < 0) {
@@ -293,20 +472,39 @@ static int demux_single_frame(IDeckLinkVideoFrame* videoFrame, IDeckLinkVideoFra
 			       ft.ts1.tv_usec);
 
 			if (ft.decklinkCaptureMode != selectedDisplayMode) {
+				fprintf(stderr, "Change in frame format detected old=%x new=%x!\n",
+					selectedDisplayMode, ft.decklinkCaptureMode);
 				selectedDisplayMode = ft.decklinkCaptureMode;
-				fprintf(stderr, "Change in frame format detected!\n");
 				g_shutdown = 3;
 				pthread_cond_signal(&sleepCond);
 			}
 
+			if (ft.counter > DJH_SKIP_START && ft.counter < DJH_SKIP_END) {
+			  continue;
+			}
+			if (in_skip_list(ft.counter)) {
+			  fprintf(stderr, "Skipping %d\n", ft.counter);
+			  continue;
+			}
 			/* We hit the next timing header, so stop processing */
 			break;
-		} else if (header == video_v1_header) {
+		}
+
+		if (header == video_v1_header) {
 			if (fwr_video_frame_read(session, &fv) < 0) {
 				fprintf(stderr, "No more video?\n");
 				eos = 1;
 				break;
 			}
+
+		 	if (ft.counter > DJH_SKIP_START && ft.counter < DJH_SKIP_END) {
+			  continue;
+			}
+			if (in_skip_list(ft.counter)) {
+			  fprintf(stderr, "Skipping %d\n", ft.counter);
+			  continue;
+			}
+
 			printf("\tvideo: %d x %d  strideBytes: %d  bufferLengthBytes: %d\n",
 				fv->width, fv->height, fv->strideBytes, fv->bufferLengthBytes);
 
@@ -329,40 +527,233 @@ static int demux_single_frame(IDeckLinkVideoFrame* videoFrame, IDeckLinkVideoFra
 				cur += fv->strideBytes;
 			}
 		} else if (header == VANC_SOL_INDICATOR) {
+		  struct klvanc_line_set_s vanc_lines = { 0 };
+		  struct klvanc_context_s *vanc_ctx;
+		  struct klvanc_packet_eia_708b_s *pkt;
 			if (fwr_vanc_frame_read(session, &fd) < 0) {
 				fprintf(stderr, "No more vanc?\n");
 				eos = 1;
 				break;
 			}
+			klvanc_context_create(&vanc_ctx);
+			vanc_ctx->callbacks = &callbacks;
+
+			if (in_inject_list(ft.counter) && fd->line == 12) {
+				/* Hack to insert discontinuity */
+				printf("In inject list %d!\n", ft.counter);
+				int ret = klvanc_create_eia708_cdp(&pkt);
+				if (ret != 0)
+					return 0;
+
+				ret = klvanc_set_framerate_EIA_708B(pkt, 1001, 30000);
+				if (ret != 0) {
+					printf("Invalid framerate specified\n");
+					klvanc_destroy_eia708_cdp(pkt);
+					return 0;
+				}
+				pkt->header.ccdata_present = 1;
+				pkt->header.caption_service_active = 1;
+				pkt->ccdata.cc_count = 20;
+#if 0
+				pkt->ccdata.cc[0].cc_valid = 1;
+				pkt->ccdata.cc[0].cc_type = 0x03;
+				pkt->ccdata.cc[0].cc_data[0] = 0x01; /* Seq num 0x0, len 1 */
+				pkt->ccdata.cc[0].cc_data[1] = 0;
+				pkt->ccdata.cc[1].cc_valid = 1;
+				pkt->ccdata.cc[1].cc_type = 0x03;
+				pkt->ccdata.cc[1].cc_data[0] = 0xc1; /* Seq num 0x3, len 1 */
+				pkt->ccdata.cc[1].cc_data[1] = 0;
+#endif
+#if 0
+				pkt->ccdata.cc[0].cc_valid = 1;
+				pkt->ccdata.cc[0].cc_type = 0x03; /* DTVCC Channel packet start */
+				pkt->ccdata.cc[0].cc_data[0] = (0x02 << 6) | 0x02; /* Seq num 0x2, len 2 */
+				pkt->ccdata.cc[0].cc_data[1] = (0x01 << 5) | 0x01; /* Service 1, len 1 */
+
+				pkt->ccdata.cc[1].cc_valid = 1;
+				pkt->ccdata.cc[1].cc_type = 0x02; /* DTVCC Channel packet data */
+
+				pkt->ccdata.cc[1].cc_data[0] = 0x8f; /* Reset */
+				pkt->ccdata.cc[1].cc_data[1] = 0;
+#endif
+#if 0
+				/* Jam DH into stream as a test */
+				pkt->ccdata.cc[0].cc_valid = 1;
+				pkt->ccdata.cc[0].cc_type = 0x03; /* DTVCC Channel packet start */
+				pkt->ccdata.cc[0].cc_data[0] = (0x02 << 6) | 0x03; /* Seq num 0x2, len 3 */
+				pkt->ccdata.cc[0].cc_data[1] = (0x01 << 5) | 0x02; /* Service 1, len 2 */
+
+				pkt->ccdata.cc[1].cc_valid = 1;
+				pkt->ccdata.cc[1].cc_type = 0x02; /* DTVCC Channel packet data */
+				pkt->ccdata.cc[1].cc_data[0] = 0x44; /* D */
+				pkt->ccdata.cc[1].cc_data[1] = 0x45; /* E */
+
+				pkt->ccdata.cc[2].cc_valid = 1;
+				pkt->ccdata.cc[2].cc_type = 0x02; /* DTVCC Channel packet data */
+				pkt->ccdata.cc[2].cc_data[0] = 0x00; /* Null Service Block */
+				pkt->ccdata.cc[2].cc_data[1] = 0x00; /* Null Service Block */
+
+				pkt->ccdata.cc[3].cc_valid = 1;
+				pkt->ccdata.cc[3].cc_type = 0x03; /* DTVCC Channel packet start */
+				pkt->ccdata.cc[3].cc_data[0] = (0x03 << 6) | 0x03; /* Seq num 0x3, len 3 */
+				pkt->ccdata.cc[3].cc_data[1] = (0x01 << 5) | 0x02; /* Service 1, len 2 */
+
+				pkt->ccdata.cc[4].cc_valid = 1;
+				pkt->ccdata.cc[4].cc_type = 0x02; /* DTVCC Channel packet data */
+				pkt->ccdata.cc[4].cc_data[0] = 0x44; /* D */
+				pkt->ccdata.cc[4].cc_data[1] = 0x45; /* E */
+
+				pkt->ccdata.cc[5].cc_valid = 1;
+				pkt->ccdata.cc[5].cc_type = 0x02; /* DTVCC Channel packet data */
+				pkt->ccdata.cc[5].cc_data[0] = 0x00; /* Null Service Block */
+				pkt->ccdata.cc[5].cc_data[1] = 0x00; /* Null Service Block */
+
+#endif
+
+				last_ccpseq++;
+				if (last_ccpseq == 4)
+					last_ccpseq = 0;
+
+				pkt->ccdata.cc[0].cc_valid = 1;
+				pkt->ccdata.cc[0].cc_type = 0x03; /* DTVCC Channel packet start */
+				pkt->ccdata.cc[0].cc_data[0] = (last_ccpseq << 6) | 0x03; /* CCP Seq num 0x2, len 2 */
+				pkt->ccdata.cc[0].cc_data[1] = (0x01 << 5) | 0x02; /* SB Service 1, len 2 */
+
+				pkt->ccdata.cc[1].cc_valid = 1;
+				pkt->ccdata.cc[1].cc_type = 0x02; /* DTVCC Channel packet data */
+//				pkt->ccdata.cc[1].cc_data[0] = 0x8c; /* DeleteWindows */
+				pkt->ccdata.cc[1].cc_data[0] = 0x88; /* ClearWindows */
+				pkt->ccdata.cc[1].cc_data[1] = 0xff; /* Arg; windows 0-7 */
+
+				pkt->ccdata.cc[2].cc_valid = 1;
+				pkt->ccdata.cc[2].cc_type = 0x02; /* DTVCC Channel packet data */
+				pkt->ccdata.cc[2].cc_data[0] = 0x00; /* SB Null Service block */
+				pkt->ccdata.cc[2].cc_data[1] = 0x00; /* SB Null Service block */
+#if 0
+				pkt->ccdata.cc[2].cc_valid = 1;
+				pkt->ccdata.cc[2].cc_type = 0x03; /* DTVCC Channel packet start */
+				last_ccpseq++;
+				if (last_ccpseq == 4)
+					last_ccpseq = 0;
+				pkt->ccdata.cc[2].cc_data[0] = (last_ccpseq << 6) | 0x02; /* Seq num 0x3, len 2 */
+				pkt->ccdata.cc[2].cc_data[1] = (0x01 << 5) | 0x02; /* Service 1, len 2 */
+
+				pkt->ccdata.cc[3].cc_valid = 1;
+				pkt->ccdata.cc[3].cc_type = 0x02; /* DTVCC Channel packet data */
+#if 0
+				pkt->ccdata.cc[3].cc_data[0] = 0x8f; /* Reset */
+				pkt->ccdata.cc[3].cc_data[1] = 0x00; /* Null Service block */
+#endif
+				pkt->ccdata.cc[3].cc_data[0] = 0x8c; /* DeleteWindows */
+				pkt->ccdata.cc[3].cc_data[1] = 0xff; /* Arg; windows 0-7 */
+#endif
+#if 0
+				pkt->ccdata.cc[2].cc_valid = 1;
+				pkt->ccdata.cc[2].cc_type = 0x03; /* DTVCC Channel packet start */
+				pkt->ccdata.cc[2].cc_data[0] = (0x03 << 6) | 0x02; /* Seq num 0x3, len 2 */
+				pkt->ccdata.cc[2].cc_data[1] = (0x01 << 5) | 0x01; /* Service 1, len 1 */
+				pkt->ccdata.cc[3].cc_valid = 1;
+				pkt->ccdata.cc[3].cc_type = 0x02; /* DTVCC Channel packet data */
+				pkt->ccdata.cc[3].cc_data[0] = 0x8f; /* Reset */
+				pkt->ccdata.cc[3].cc_data[1] = 0;
+#endif
+				/* Pad the remaining entries */
+				for (int i = 3; i < pkt->ccdata.cc_count; i++) {
+					pkt->ccdata.cc[i].cc_valid = 0;
+					pkt->ccdata.cc[i].cc_type = 0x02;
+					pkt->ccdata.cc[i].cc_data[0] = 0x00;
+					pkt->ccdata.cc[i].cc_data[1] = 0x00;
+				}
+
+//				klvanc_finalize_EIA_708B(pkt, 0x00); /* CDP sequence number 0x00 */
+				klvanc_finalize_EIA_708B(pkt, ++last_cdpseq); 
+//				klvanc_finalize_EIA_708B(pkt, 0x235); 
+				uint16_t *cdp;
+				uint16_t len;
+				uint8_t *cdpbytes;
+				ret = klvanc_convert_EIA_708B_to_packetBytes(pkt, &cdpbytes, &len);
+				printf("cdp = {");
+				for (int i = 0; i < len; i++) {
+					printf("0x%02x, ", cdpbytes[i]);
+				}
+				printf("} \n");
+				ret = klvanc_convert_EIA_708B_to_words(pkt, &cdp, &len);
+
+				klvanc_destroy_eia708_cdp(pkt);
+				ret = klvanc_line_insert(vanc_ctx, &vanc_lines, cdp, len,
+							 12, 0);
+				printf("Inserted ret=%d\n", ret);
+				
+			} else if (ft.counter > DJH_SKIP_START && ft.counter < DJH_SKIP_END) {
+			  continue;
+			} else if (in_skip_list(ft.counter)) {
+			  fprintf(stderr, "Skipping %d\n", ft.counter);
+			  continue;
+			} else {
+				const uint32_t *src = (const uint32_t *) fd->ptr;				
+				uint16_t decoded_words[16384];
+				memset(&decoded_words[0], 0, sizeof(decoded_words));
+				uint16_t *p_anc = decoded_words;
+				if (klvanc_v210_line_to_nv20_c(src, p_anc, sizeof(decoded_words), (1920 / 6) * 6) < 0)
+					continue;
+//				printf("Parsing line=%d\n", fd->line);
+				int ret = klvanc_packet_parse(vanc_ctx, fd->line, 
+						    decoded_words, sizeof(decoded_words) / (sizeof(unsigned short)));
+			}
+
 #if 0
 			printf("\t\tvanc: line: %4d -- ", fd->line);
 			for (int i = 0; i < 32; i++)
 				printf("%02x ", *(fd->ptr + i));
 			printf("\n");
 #endif
+#if 0
+			if (fd->line == 12 && fd->ptr[0] != 0) {
+			  char blah[10];
+			  fgets(blah, sizeof(blah), stdin);
+			}
+#endif
 			// DJH TESTING
 			result = ancillaryData->GetBufferForVerticalBlankingLine(fd->line, (void **)&buffer);
 			if (result != S_OK)
 			{
+#if 0
 				fprintf(stderr, "Could not get buffer for Vertical blanking line %d - result = %08x\n",
 					fd->line, result);
+#endif
 				continue;
 			}
-			memcpy(buffer, fd->ptr, fd->strideBytes);
 
+			struct klvanc_line_s *line = vanc_lines.lines[0];
+			if (line)  {
+				result = klvanc_generate_vanc_line_v210(vanc_ctx, line,
+									(uint8_t *) buffer,
+									1080);
+				printf("result=%d\n", result);
+			} else {
+				memcpy(buffer, fd->ptr, fd->strideBytes);
+			}
 
 		} else if (header == audio_v1_header) {
 			if (fwr_pcm_frame_read(session, &fa) < 0) {
 				eos = 1;
 				break;
 			}
+			if (ft.counter > DJH_SKIP_START && ft.counter < DJH_SKIP_END) {
+			  continue;
+			}
+			if (in_skip_list(ft.counter)) {
+			  fprintf(stderr, "Skipping %d\n", ft.counter);
+			  continue;
+			}
+
 			printf("\taudio: channels: %d  depth: %d  frameCount: %d  bufferLengthBytes: %d\n",
 				fa->channelCount,
 				fa->sampleDepth,
 				fa->frameCount,
 				fa->bufferLengthBytes);
 		}
-
+#if 0
 		if (fa) {
 			fwr_pcm_frame_free(session, fa);
 			fa = NULL;
@@ -371,12 +762,14 @@ static int demux_single_frame(IDeckLinkVideoFrame* videoFrame, IDeckLinkVideoFra
 			fwr_video_frame_free(session, fv);
 			fv = NULL;
 		}
+#endif
 	}
-
+#if 0
 	gettimeofday(&tv2, NULL);
+
 	fprintf(stderr, "In: %d.%06d Out: %d.%06d\n", tv1.tv_sec, tv1.tv_usec,
 		tv2.tv_sec, tv2.tv_usec);
-
+#endif
 	return eos;
 }
 
@@ -787,7 +1180,7 @@ static int _main(int argc, char *argv[])
 				}
 				/* Ok, we have enough to proceed with */
 				ftlast = ft;
-				selectedDisplayMode = ft.decklinkCaptureMode;
+//				selectedDisplayMode = ft.decklinkCaptureMode;
 				break;
 			} else if (header == video_v1_header) {
 				if (fwr_video_frame_read(session, &fv) < 0) {

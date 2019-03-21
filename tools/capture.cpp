@@ -181,6 +181,10 @@ static struct prbs_context_s g_prbs;
 static int g_prbs_initialized = 0;
 #endif
 
+/* Caption monitoring */
+uint16_t cdp_sequence_num;
+uint8_t ccp_sequence_num;
+
 static unsigned long audioFrameCount = 0;
 static struct frameTime_s {
 	unsigned long long lastTime;
@@ -593,7 +597,7 @@ static int AnalyzeMuxed(const char *fn)
 			struct timeval diff;
 			fwr_timeval_subtract(&diff, &ft.ts1, &ftlast.ts1);
 
-			printf("timing: counter %" PRIu64 "  mode:%s  ts:%d.%06d  timestamp_interval:%d.%06d\n",
+			fprintf(stderr, "timing: counter %" PRIu64 "  mode:%s  ts:%d.%06d  timestamp_interval:%d.%06d\n",
 				ft.counter,
 				display_mode_to_string(ft.decklinkCaptureMode),
 				ft.ts1.tv_sec,
@@ -606,7 +610,7 @@ static int AnalyzeMuxed(const char *fn)
 				fprintf(stderr, "No more video?\n");
 				break;
 			}
-			printf("\tvideo: %d x %d  strideBytes: %d  bufferLengthBytes: %d\n",
+			fprintf(stderr, "\tvideo: %d x %d  strideBytes: %d  bufferLengthBytes: %d\n",
 				fv->width, fv->height, fv->strideBytes, fv->bufferLengthBytes);
 		} else
 		if (header == VANC_SOL_INDICATOR) {
@@ -614,10 +618,12 @@ static int AnalyzeMuxed(const char *fn)
 				fprintf(stderr, "No more vanc?\n");
 				break;
 			}
-			printf("\t\tvanc: line: %4d -- ", fd->line);
+#if 0
+			fprintf(stderr, "\t\tvanc: line: %4d -- ", fd->line);
 			for (int i = 0; i < 32; i++)
-				printf("%02x ", *(fd->ptr + i));
-			printf("\n");
+			  fprintf(stderr, "%02x ", *(fd->ptr + i));
+			fprintf(stderr, "\n");
+#endif
 			/* Process the line colorspace, hand-off to the vanc library for parsing
 			 * and prepare to receive callbacks.
 			 */
@@ -692,6 +698,13 @@ static int AnalyzeAudio(const char *fn)
 
 		printf("id: %8d ch: %d  sfc: %d  depth: %d  stride: %d  bytes: %d\n",
 			frame - 1, f->channelCount, f->frameCount, f->sampleDepth, stride, f->bufferLengthBytes);
+#if 0
+                printf("ORIG (len=%d): \n", f->bufferLengthBytes);
+                for (int i = 0; i < f->bufferLengthBytes; i++) {
+                    printf("%02x ", f->ptr[i]);
+                }
+                printf("\n");
+#endif
 		if (g_verbose) {
 			for (int i = 0; i < f->frameCount; i++) {
 				printf("   frame: %8d  ", i);
@@ -705,10 +718,12 @@ static int AnalyzeAudio(const char *fn)
 		}
 
 		if (g_enable_smpte337_detector) {
-			for (int i = 0; i < 8; i++) {
+//			for (int i = 0; i < 8; i++) {
+			for (int i = 0; i < 1; i++) {
 				int offset = (i * 2) * (f->sampleDepth / 8);
 				size_t l = smpte337_detector_write(det[i], f->ptr + offset,
-					f->frameCount, f->sampleDepth, f->channelCount, stride, 1);
+//					f->frameCount, f->sampleDepth, f->channelCount, stride, 1);
+					f->frameCount, f->sampleDepth, f->channelCount, stride, 2);
 			}
 		}
 
@@ -1467,13 +1482,259 @@ static int cb_AFD(void *callback_context, struct klvanc_context_s *ctx, struct k
 	return 0;
 }
 
+struct element_prop {
+	uint8_t val;
+	const char *name;
+};
+
+struct element_prop element_names[] = {
+	/* C0 */
+	{ 0x00, "NUL" },
+	{ 0x03, "EXT" },
+	{ 0x08, "BS" },
+	{ 0x0c, "FF" },
+	{ 0x0d, "CR" },
+	{ 0x0e, "HCR" },
+	{ 0x10, "EXT1" },
+	{ 0x18, "P16" },
+	/* G0 */
+	{ 0x20, "SP" },
+	/* C1 */
+	{ 0x80, "CW0" },
+	{ 0x81, "CW1" },
+	{ 0x82, "CW2" },
+	{ 0x83, "CW3" },
+	{ 0x84, "CW4" },
+	{ 0x85, "CW5" },
+	{ 0x86, "CW6" },
+	{ 0x87, "CW7" },
+	{ 0x88, "CLW" },
+	{ 0x89, "DSW" },
+	{ 0x8a, "HDW" },
+	{ 0x8b, "TGW" },
+	{ 0x8c, "DLW" },
+	{ 0x8d, "DLY" },
+	{ 0x8e, "DLC" },
+	{ 0x8f, "RST" },
+	{ 0x90, "SPA" },
+	{ 0x91, "SPC" },
+	{ 0x92, "SPL" },
+	{ 0x97, "SWA" },
+	{ 0x98, "DF0" },
+	{ 0x99, "DF1" },
+	{ 0x9a, "DF2" },
+	{ 0x9b, "DF3" },
+	{ 0x9c, "DF4" },
+	{ 0x9d, "DF5" },
+	{ 0x9e, "DF6" },
+	{ 0x9f, "DF7" },
+};
+
+static int element_len(uint8_t e) {
+
+	/* C0 Code Set (Sec 7.1.4) */
+	if (e >= 0x00 && e <= 0x0f)
+		return 1;
+	if (e >= 0x11 && e <= 0x17)
+		return 2;
+	if (e >= 0x18 && e <= 0x1f)
+		return 2;
+
+	/* C1 Code Set (Sec 7.1.5, 8.10.5) */
+	if (e >= 0x80 && e <= 0x87) /* CWx */
+		return 1;
+	if (e == 0x88) /* CLW */
+		return 2;
+	if (e == 0x89) /* DSW */
+		return 2;
+	if (e == 0x8a) /* HDW */
+		return 2;
+	if (e == 0x8b) /* TGW */
+		return 2;
+	if (e == 0x8c) /* DLW */
+		return 2;
+	if (e == 0x8d) /* DLY */
+		return 2;
+	if (e == 0x8e) /* DLC */
+		return 1;
+	if (e == 0x8f) /* RST */
+		return 1;
+	if (e == 0x90) /* SPA */
+		return 3;
+	if (e == 0x91) /* SPC */
+		return 4;
+	if (e == 0x92) /* SPL */
+		return 3;
+	if (e >= 0x93 && e <= 0x96) /* Unused (Sec 7.1.5.1) */
+		return 2;
+	if (e == 0x97) /* SWA */
+		return 5;
+	if (e >= 0x98 && e <= 0x9f) /* DFx */
+		return 7;
+
+	/* G0 Code Set (Sec 7.1.6) */
+	if (e >= 0x20 && e <= 0x7f)
+		return 1;
+	/* G1 Code Set (Sec 7.1.7) */
+	if (e >= 0xa0 && e <= 0xff)
+		return 1;
+		
+	fprintf(stderr, "Unknown element [%02x].  Assuming len 1\n", e);
+	return 1;
+}
+
+static const char *element_name(uint8_t e)
+{
+	for (int i = 0; i < (sizeof(element_names) / sizeof(struct element_prop)); i++) {
+		if (e == element_names[i].val)
+			return element_names[i].name;
+	}
+
+	return NULL;
+}
+
+static void parse_sb(uint8_t *sb, int len)
+{
+	uint8_t c = 0;
+
+	fprintf(stderr, "SB: ");
+	for (int i = 0; i < len; i++) {
+		fprintf(stderr, "%02x ", sb[i]);
+	}
+	if (len == 0)
+		fprintf(stderr, "NULL service block");
+	fprintf(stderr, "\n");
+
+	while (c < len) {
+		uint8_t code = sb[c];
+		int elen = element_len(code);
+		fprintf(stderr, "Code: %02x(%d) ", code, elen);
+
+		const char *name = element_name(code);
+		if (name)
+			fprintf(stderr, "[%s] ", name);
+		else if (code >= 0x20 && code <= 0x7e)
+			fprintf(stderr, "[%c] ", code);
+		c++;
+
+		/* Make sure there are enough bytes remaining */
+		if (c + elen - 1 > len) {
+			fprintf(stderr, "Error: element len=%d but only %d bytes remaining\n",
+				elen, len - c);
+		} else if (elen > 1) {
+			fprintf(stderr, "Args: ");
+			for (int i = 1; i < elen; i++) {
+				fprintf(stderr, "%02x ", sb[c]);
+				c++;
+			}
+		}
+		fprintf(stderr, "\n");
+	}
+}
+
+static void parse_ccp(uint8_t *ccp, int len)
+{
+	uint8_t service_num;
+	uint8_t block_size;
+	uint8_t sb[255];
+	int c = 0;
+
+	fprintf(stderr, "CCP: ");
+	for (int j = 0; j < len; j++) {
+		fprintf(stderr, "%02x ", ccp[j]);
+	}
+	fprintf(stderr, "\n");
+
+	/* Iterate and extract service blocks */
+	while (c < len) {
+		service_num = ccp[c] >> 5;
+		block_size = ccp[c] & 0x1f;
+		c++;
+		fprintf(stderr, "service_num=%d size=%d\n", service_num, block_size);
+		if (service_num == 0x07 && block_size != 0) {
+			uint8_t extended_service = ccp[c++] & 0x3f;
+			fprintf(stderr, "Extended service_num=%d\n", extended_service);
+		}
+
+		if (c + block_size > len) {
+			fprintf(stderr, "Error: block size=%d but only %d bytes remaining\n",
+				block_size, len - c);
+		}
+		memset(sb, 0, sizeof(sb));
+		for (int i = 0; i < block_size; i++) {
+			sb[i] = ccp[c++];
+		}
+		parse_sb(sb, block_size);
+	}
+}
+
 static int cb_EIA_708B(void *callback_context, struct klvanc_context_s *ctx, struct klvanc_packet_eia_708b_s *pkt)
 {
 	uint8_t caption_data[128];
+	uint16_t expected_cdp;
 
 	/* Have the library display some debug */
-	if (!g_monitor_mode && g_verbose)
+	if (!g_monitor_mode && g_verbose) {
 		klvanc_dump_EIA_708B(ctx, pkt);
+
+		expected_cdp = cdp_sequence_num + 1;
+		cdp_sequence_num = pkt->header.cdp_hdr_sequence_cntr;
+		if (pkt->header.cdp_hdr_sequence_cntr != expected_cdp) {
+                  fprintf(stderr, "CDP counter inconsistent.  Received=0x%04x Expected=%04x c=%d\n",
+			  pkt->header.cdp_hdr_sequence_cntr, expected_cdp, ftlast.counter+1);
+		  return 0;
+		}
+
+		/* Let's decode the CCP */
+		int packet_data_size = 0;
+		uint8_t ccp[256];
+		memset(ccp, 0, sizeof(ccp));
+		int ccp_count = 0;
+		for (int i = 0; i < pkt->ccdata.cc_count; i++) {
+			if (pkt->ccdata.cc[i].cc_valid) {
+				if (pkt->ccdata.cc[i].cc_type == 0x03) {
+					/* Start of new DTV packet, but first handle previous packet */
+					if (ccp_count > 0) {
+						if (packet_data_size > ccp_count)
+							fprintf(stderr, "Error: incomplete CCP packet, packet_data_size=%d ccp_count=%d\n", packet_data_size, ccp_count);
+						else
+							parse_ccp(ccp, ccp_count);
+					}
+					ccp_count = 0;
+					memset(ccp, 0, sizeof(ccp));
+
+					int ccp_seq = pkt->ccdata.cc[i].cc_data[0] >> 6;
+					int packet_size_code = pkt->ccdata.cc[i].cc_data[0] & 0x3f;
+					if (packet_size_code == 0)
+						packet_data_size = 127;
+					else
+						packet_data_size = packet_size_code * 2 - 1;
+					fprintf(stderr, "CCP Sequence number: %d size=%d\n", 
+						ccp_seq, packet_data_size);
+
+					uint8_t expected_ccp_seq = ccp_sequence_num + 1;
+					if (expected_ccp_seq == 4)
+						expected_ccp_seq = 0;
+					ccp_sequence_num = ccp_seq;
+					if (ccp_seq != expected_ccp_seq) {
+						fprintf(stderr, "CCP Sequence inconsistent.  Received=%d Expected=%d\n", ccp_seq, expected_ccp_seq);
+					}
+
+					if (packet_data_size > 0)
+						ccp[ccp_count++] = pkt->ccdata.cc[i].cc_data[1];
+				} else if (pkt->ccdata.cc[i].cc_type == 0x02) {
+					/* Continuation of DTV packet */
+					if (ccp_count < packet_data_size)
+						ccp[ccp_count++] = pkt->ccdata.cc[i].cc_data[0];
+					if (ccp_count < packet_data_size)
+						ccp[ccp_count++] = pkt->ccdata.cc[i].cc_data[1];
+				}
+			}
+		}
+		if (ccp_count > 0) {
+			parse_ccp(ccp, ccp_count);
+		}
+	}
 
 	if (rcwtOutputFile >= 0) {
 		if (pkt->ccdata.cc_count * 3 > sizeof(caption_data))
