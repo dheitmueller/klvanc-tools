@@ -26,6 +26,7 @@ SRC += player.cpp
 SRC += ts_packetizer.c
 SRC += klringbuffer.c
 SRC += frame-writer.c
+SRC += dtsdi-reader.c
 SRC += klburnin.c
 SRC += smpte337_detector.c
 SRC += rcwt.c

@@ -19,6 +19,7 @@
 #include <libklvanc/smpte2038.h>
 #include "smpte337_detector.h"
 #include "frame-writer.h"
+#include "dtsdi-reader.h"
 #include "rcwt.h"
 
 #if HAVE_LIBKLMONITORING_KLMONITORING_H
@@ -160,6 +161,7 @@ static int g_muxedOutputExcludeVideo = 0;
 static int g_muxedOutputExcludeAudio = 0;
 static int g_muxedOutputExcludeData = 0;
 static const char *g_muxedInputFilename = NULL;
+static const char *g_dtsdiInputFilename = NULL;
 static const char *g_rcwtOutputFilename = NULL;
 static struct fwr_session_s *muxedSession = NULL;
 static int g_maxFrames = -1;
@@ -1716,7 +1718,7 @@ static int _main(int argc, char *argv[])
 	ltn_histogram_alloc_video_defaults(&hist_audio_sfc, "audio sfc");
 	ltn_histogram_alloc_video_defaults(&hist_format_change, "video format change");
 
-	while ((ch = getopt(argc, argv, "?h3c:s:f:a:A:m:n:p:t:vV:I:i:l:LP:MSx:X:R:e:")) != -1) {
+	while ((ch = getopt(argc, argv, "?h3c:s:f:a:A:m:n:p:t:vV:I:i:l:LP:MSx:X:R:e:D:")) != -1) {
 		switch (ch) {
 #if HAVE_LIBKLMONITORING_KLMONITORING_H
 		case 'S':
@@ -1737,6 +1739,9 @@ static int _main(int argc, char *argv[])
 			break;
 		case 'X':
 			g_muxedInputFilename = optarg;
+			break;
+		case 'D':
+			g_dtsdiInputFilename = optarg;
 			break;
 		case 'e':
 			switch (optarg[0]) {
@@ -1900,6 +1905,9 @@ static int _main(int argc, char *argv[])
 	}
 	if (g_muxedInputFilename != NULL) {
 		return AnalyzeMuxed(g_muxedInputFilename);
+	}
+	if (g_dtsdiInputFilename != NULL) {
+		return AnalyzeDtsdi(g_dtsdiInputFilename, vanchdl);
 	}
 
 	if (!deckLinkIterator) {
