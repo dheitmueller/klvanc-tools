@@ -339,7 +339,7 @@ static int demux_single_frame(IDeckLinkVideoFrame* videoFrame, IDeckLinkVideoFra
 	return eos;
 }
 
-static void fillVideo(IDeckLinkMutableVideoFrame* theFrame)
+static void fillVideo(IDeckLinkMutableVideoFrame* theFrame, IDeckLinkVideoFrameAncillary *ancillaryData)
 {
 	uint32_t* nextWord;
 	theFrame->GetBytes((void**)&nextWord);
@@ -386,21 +386,29 @@ public:
 		m_deckLinkOutput->Release();
 	}
 	
-	HRESULT ScheduleNextFrame(IDeckLinkVideoFrame* videoFrame)
+	HRESULT ScheduleNextFrame(IDeckLinkMutableVideoFrame *videoFrame)
 	{
 		HRESULT	result = S_OK;
 		IDeckLinkVideoFrameAncillary *ancillaryData = NULL;
+		int insertedVideo = 0;
 
 		if (g_shutdown > 0)
 			return result;
 
-		result = videoFrame->GetAncillaryData(&ancillaryData);
+		result = m_deckLinkOutput->CreateAncillaryData(g_pixelFormat, &ancillaryData);
 		if (result != S_OK)
 		{
-			fprintf(stderr, "Could not get ancillary data = %08x\n", result);
+			fprintf(stderr, "Could not create Ancillary data - result = %08x\n", result);
 			goto bail;
 		}
 
+		// Ancillary data filled in callback
+		result = videoFrame->SetAncillaryData(ancillaryData);
+		if (result != S_OK)
+		{
+			fprintf(stderr, "Fail to set ancillary data to the frame - result = %08x\n", result);
+			goto bail;
+		}
 		if (session) {
 			int ret = demux_single_frame(videoFrame, ancillaryData);
 			if (ret != 0) {
@@ -412,7 +420,7 @@ public:
 				goto bail;
 			}
 		} else {
-			fillVideo((IDeckLinkMutableVideoFrame *) videoFrame);
+			fillVideo(videoFrame, ancillaryData);
 		}
 
 		// When a video frame completes,reschedule another frame
@@ -438,7 +446,7 @@ public:
 	
 	HRESULT	STDMETHODCALLTYPE ScheduledFrameCompleted(IDeckLinkVideoFrame* completedFrame, BMDOutputFrameCompletionResult)
 	{
-		HRESULT result = ScheduleNextFrame(completedFrame);
+		HRESULT result = ScheduleNextFrame((IDeckLinkMutableVideoFrame *) completedFrame);
 		
 		if (result != S_OK)
 		{
@@ -480,44 +488,6 @@ public:
 		return newRefValue;
 	}
 };
-
-
-static IDeckLinkMutableVideoFrame* CreateFrame(IDeckLinkOutput* deckLinkOutput)
-{
-	HRESULT                         result;
-	IDeckLinkMutableVideoFrame*     frame = NULL;
-	IDeckLinkVideoFrameAncillary*	ancillaryData = NULL;
-	
-	result = deckLinkOutput->CreateVideoFrame(kFrameWidth, kFrameHeight, kRowBytes, g_pixelFormat, bmdFrameFlagDefault, &frame);
-	if (result != S_OK)
-	{
-		fprintf(stderr, "Could not create a video frame - result = %08x\n", result);
-		goto bail;
-	}
-	
-	result = deckLinkOutput->CreateAncillaryData(g_pixelFormat, &ancillaryData);
-	if (result != S_OK)
-	{
-		fprintf(stderr, "Could not create Ancillary data - result = %08x\n", result);
-		goto bail;
-	}
-
-	// Ancillary data filled in callback
-	result = frame->SetAncillaryData(ancillaryData);
-	if (result != S_OK)
-	{
-		fprintf(stderr, "Fail to set ancillary data to the frame - result = %08x\n", result);
-		goto bail;
-	}
-	
-bail:
-	// Release the Ancillary object
-	if (ancillaryData != NULL)
-		ancillaryData->Release();
-	
-	return frame;
-}
-
 
 static int startupVideo(IDeckLinkOutput *deckLinkOutput, OutputCallback *outputCallback)
 {
@@ -578,11 +548,11 @@ static int startupVideo(IDeckLinkOutput *deckLinkOutput, OutputCallback *outputC
 		IDeckLinkMutableVideoFrame *videoFrame = NULL;
 		
 		// Create a frame with defined format
-		videoFrame = CreateFrame(deckLinkOutput);
-		if (!videoFrame)
+		result = deckLinkOutput->CreateVideoFrame(kFrameWidth, kFrameHeight, kRowBytes, g_pixelFormat, bmdFrameFlagDefault, &videoFrame);
+		if (result != S_OK)
 			return -1;
 
-		fillVideo(videoFrame);
+		fillVideo(videoFrame, NULL);
 		
 		result = outputCallback->ScheduleNextFrame(videoFrame);
 		if (result != S_OK)
