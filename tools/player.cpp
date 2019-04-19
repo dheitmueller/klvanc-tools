@@ -119,6 +119,7 @@ static BMDDisplayMode g_requested_mode_id = 0;
 static BMDVideoInputFlags g_inputFlags = bmdVideoInputEnableFormatDetection;
 static BMDPixelFormat g_pixelFormat = bmdFormat10BitYUV;
 static bool wantKlCounters = false;
+static bool wantSCTE104Trigger = false; /* FIXME: expose as runtime configurable */
 
 static unsigned long audioFrameCount = 0;
 static struct frameTime_s {
@@ -374,6 +375,21 @@ static void postProcess(IDeckLinkMutableVideoFrame* theFrame, IDeckLinkVideoFram
 	if (wantKlCounters) {
 		theFrame->GetBytes((void**)&nextWord);
 		klburnin_V210_write_32bit_value(nextWord, kRowBytes, gTotalFramesScheduled, 0);
+	}
+
+	if (ancillaryData && wantSCTE104Trigger && gTotalFramesScheduled % 600 == 0) {
+		/* Put out an arbitrary SCTE-104 trigger once every 600 frames for testing */
+		uint8_t *buffer;
+		uint16_t trigger[] = {0x0000, 0x03ff, 0x03ff, 0x0241, 0x0107, 0x0125, 0x0108, 0x02ff, 0x02ff, 0x0200, 0x0224, 0x0200, 0x0200, 0x0200, 0x0200, 0x0200, 0x0200, 0x0200, 0x0102, 0x0101, 0x0101, 0x0200, 0x010e, 0x0101, 0x0200, 0x0200, 0x0212, 0x0134, 0x0145, 0x0167, 0x0113, 0x0288, 0x0101, 0x0218, 0x0101, 0x0102, 0x0101, 0x0101, 0x020f, 0x0200, 0x0102, 0x0212, 0x0134, 0x01ac };
+		fprintf(stderr, "Inserting SCTE-104 trigger, gTotalFramesScheduled=%d\n", gTotalFramesScheduled);
+		int result = ancillaryData->GetBufferForVerticalBlankingLine(12, (void **)&buffer);
+		if (result != S_OK) {
+			fprintf(stderr, "Could not get buffer for Vertical blanking line %d - result = %08x\n",
+				12, result);
+		} else {
+			klvanc_y10_to_v210(trigger, buffer, sizeof(trigger) / sizeof(uint16_t));
+		}
+
 	}
 }
 
