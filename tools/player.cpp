@@ -363,6 +363,13 @@ static void fillVideo(IDeckLinkMutableVideoFrame* theFrame, IDeckLinkVideoFrameA
 		wordsRemaining = wordsRemaining - 4;
 	}
 #endif
+}
+
+static void postProcess(IDeckLinkMutableVideoFrame* theFrame, IDeckLinkVideoFrameAncillary *ancillaryData)
+{
+	uint32_t* nextWord;
+	theFrame->GetBytes((void**)&nextWord);
+
 	/* Burn counter into video if desired */
 	if (wantKlCounters) {
 		theFrame->GetBytes((void**)&nextWord);
@@ -422,6 +429,10 @@ public:
 		} else {
 			fillVideo(videoFrame, ancillaryData);
 		}
+
+		/* Do any fixups to the resulting frame prior to scheduling
+		   (e.g. burn in counters, inject arbitrary VANC, etc). */
+		postProcess(videoFrame, ancillaryData);
 
 		// When a video frame completes,reschedule another frame
 		result = m_deckLinkOutput->ScheduleVideoFrame(videoFrame, gTotalFramesScheduled*kFrameDuration, kFrameDuration, kTimeScale);
