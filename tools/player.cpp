@@ -213,7 +213,9 @@ static const char *display_mode_to_string(BMDDisplayMode m)
 	return &g_mode[0];
 }
 
-static int demux_single_frame(IDeckLinkVideoFrame* videoFrame, IDeckLinkVideoFrameAncillary *ancillaryData)
+static int demux_single_frame(IDeckLinkVideoFrame* videoFrame,
+			      IDeckLinkVideoFrameAncillary *ancillaryData,
+			      int *insertedVideo)
 {
 	struct fwr_header_audio_s *fa;
 	struct fwr_header_video_s *fv;
@@ -288,6 +290,7 @@ static int demux_single_frame(IDeckLinkVideoFrame* videoFrame, IDeckLinkVideoFra
 				nextWord += num_copy;
 				cur += fv->strideBytes;
 			}
+			*insertedVideo = 1;
 		} else if (header == VANC_SOL_INDICATOR) {
 			if (fwr_vanc_frame_read(session, &fd) < 0) {
 				fprintf(stderr, "No more vanc?\n");
@@ -433,7 +436,7 @@ public:
 			goto bail;
 		}
 		if (session) {
-			int ret = demux_single_frame(videoFrame, ancillaryData);
+			int ret = demux_single_frame(videoFrame, ancillaryData, &insertedVideo);
 			if (ret != 0) {
 				/* Don't schedule any more frames */
 				if (ret == 1) {
@@ -442,9 +445,10 @@ public:
 				}
 				goto bail;
 			}
-		} else {
-			fillVideo(videoFrame, ancillaryData);
 		}
+
+		if (insertedVideo == 0)
+			fillVideo(videoFrame, ancillaryData);
 
 		/* Do any fixups to the resulting frame prior to scheduling
 		   (e.g. burn in counters, inject arbitrary VANC, etc). */
