@@ -110,7 +110,6 @@ static int g_muxedOutputExcludeVideo = 0;
 static int g_muxedOutputExcludeAudio = 0;
 static int g_muxedOutputExcludeData = 0;
 static const char *g_muxedInputFilename = NULL;
-static struct fwr_session_s *muxedSession = NULL;
 static int g_shutdown = 0;
 #ifdef USE_KLBARS
 static enum kl_colorbar_pattern g_barFormat = KL_COLORBAR_SMPTE_RP_219_1;
@@ -855,8 +854,8 @@ static int _main(int argc, char *argv[])
 
 bail:
 
-	if (muxedSession)
-		fwr_session_file_close(muxedSession);
+	if (session)
+		fwr_session_file_close(session);
 
 	RELEASE_IF_NOT_NULL(displayModeIterator);
 	RELEASE_IF_NOT_NULL(deckLinkOutput);
