@@ -18,7 +18,6 @@
 #include <fcntl.h>
 #include <sys/time.h>
 #include <assert.h>
-#include <zlib.h>
 #include <libgen.h>
 #include <signal.h>
 #include <libklvanc/vanc.h>
