@@ -42,7 +42,7 @@ static uint32_t black[] = {
 };
 
 /* KL paint 6 pixels in a single point */
-__inline__ void V210_draw_6_pixels(uint32_t *addr, uint32_t *coloring)
+__inline__ static void V210_draw_6_pixels(uint32_t *addr, uint32_t *coloring)
 {
 	for (int i = 0; i < 5; i++) {
 		addr[0] = coloring[0];
@@ -53,7 +53,7 @@ __inline__ void V210_draw_6_pixels(uint32_t *addr, uint32_t *coloring)
 	}
 }
 
-__inline__ void V210_draw_box(uint32_t *frame_addr, uint32_t stride, int color)
+__inline__ static void V210_draw_box(uint32_t *frame_addr, uint32_t stride, int color)
 {
 	uint32_t *coloring;
 	if (color == 1)
@@ -67,7 +67,7 @@ __inline__ void V210_draw_box(uint32_t *frame_addr, uint32_t stride, int color)
 	}
 }
 
-__inline__ void V210_draw_box_at(uint32_t *frame_addr, uint32_t stride, int color, int x, int y)
+__inline__ static void V210_draw_box_at(uint32_t *frame_addr, uint32_t stride, int color, int x, int y)
 {
 	uint32_t *addr = frame_addr + (y * (stride / 4));
 	addr += ((x / 6) * 4);
